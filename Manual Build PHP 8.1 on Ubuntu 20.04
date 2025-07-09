@@ -1,0 +1,109 @@
+Manual Build PHP 8.1 on Ubuntu 20.04
+Step-by-step guide to build and configure PHP 8.1 manually without Docker or external PPA repository.
+1. Siapkan Dependensi Sistem
+
+sudo apt update && sudo apt upgrade -y
+
+sudo apt install -y \
+  build-essential pkg-config autoconf unzip bison re2c \
+  libxml2-dev libsqlite3-dev libcurl4-openssl-dev libjpeg-dev \
+  libpng-dev libwebp-dev libfreetype6-dev libonig-dev libzip-dev \
+  libssl-dev libicu-dev libreadline-dev libtidy-dev libxslt1-dev \
+  libgmp-dev libmysqlclient-dev libbz2-dev libmagickwand-dev \
+  libapache2-mod-fcgid apache2 apache2-dev
+
+2. Compile PHP 8.1 dari Source
+
+cd /usr/local/src
+wget https://www.php.net/distributions/php-8.1.27.tar.gz
+tar -xf php-8.1.27.tar.gz
+cd php-8.1.27
+
+./configure --prefix=/opt/php81 \
+  --with-config-file-path=/opt/php81/etc \
+  --with-config-file-scan-dir=/opt/php81/etc/conf.d \
+  --enable-fpm \
+  --with-fpm-user=www-data \
+  --with-fpm-group=www-data \
+  --enable-mbstring \
+  --enable-intl \
+  --with-openssl \
+  --with-zlib \
+  --with-curl \
+  --with-gd \
+  --with-jpeg \
+  --with-webp \
+  --with-freetype \
+  --enable-bcmath \
+  --with-mysqli \
+  --with-pdo-mysql \
+  --enable-soap \
+  --enable-zip \
+  --with-readline \
+  --with-tidy \
+  --with-xsl \
+  --with-gmp \
+  --with-bz2
+
+make -j$(nproc)
+sudo make install
+
+3. Setup Konfigurasi PHP-FPM
+
+mkdir -p /opt/php81/etc/php-fpm.d /opt/php81/var/log /opt/php81/var/run
+
+cp sapi/fpm/php-fpm.conf /opt/php81/etc/php-fpm.conf
+cp sapi/fpm/www.conf /opt/php81/etc/php-fpm.d/www.conf
+cp php.ini-production /opt/php81/etc/php.ini
+
+Edit file /opt/php81/etc/php-fpm.d/www.conf dan ubah:
+listen = /run/php81-custom.sock
+
+4. Buat Service Systemd untuk PHP 8.1 FPM
+
+cat > /etc/systemd/system/php81-fpm.service <<EOF
+[Unit]
+Description=The PHP 8.1 FastCGI Process Manager
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/opt/php81/sbin/php-fpm --nodaemonize --fpm-config /opt/php81/etc/php-fpm.conf
+ExecReload=/bin/kill -USR2 $MAINPID
+PIDFile=/opt/php81/var/run/php-fpm.pid
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reexec
+systemctl enable php81-fpm
+systemctl start php81-fpm
+systemctl status php81-fpm
+
+5. Install PEAR & PECL
+
+cd /usr/local/src
+curl -O https://pear.php.net/go-pear.phar
+/opt/php81/bin/php go-pear.phar
+
+Tekan ENTER pada semua pilihan, dan pilih 'Y' saat ditanya update php.ini
+
+6. Install Ekstensi via PECL
+
+/opt/php81/bin/pecl install imagick
+/opt/php81/bin/pecl install redis
+/opt/php81/bin/pecl install apcu
+
+7. Tambahkan ke php.ini
+
+Edit /opt/php81/etc/php.ini, tambahkan di paling bawah:
+extension=imagick.so
+extension=redis.so
+extension=apcu.so
+
+8. Verifikasi
+
+/opt/php81/bin/php -v
+/opt/php81/bin/php -m | grep -iE 'bcmath|gmp|gd|mysqli|pdo_mysql|curl|mbstring|intl|imagick|xml|zip|redis|fileinfo|apcu'
